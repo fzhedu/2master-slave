@@ -73,12 +73,17 @@ void * SlaveNode::MainThread(void * arg){
 
 void SlaveNode::MainBehav(caf::event_based_actor * self, SlaveNode * slave){
   self->become(
-      [=](DispatchAtom) {},
-      [=](UpdateAtom, int type, string & data) {
-        cout << "update" << type <<" success" << endl;
-        slave->update_handle[type]( data);
+      [=](DispatchAtom, string job)->caf::message {
+        cout << "run:" << job << endl;
+
+        return caf::make_message(OkAtom::value);
       },
-      caf::others >> [=]() {cout<<"unkown message";}
+      [=](UpdateAtom, int type, string data)->caf::message  {
+        cout << "update  success" << endl;
+        slave->update_handle[type]( data);
+        return caf::make_message(OkAtom::value);
+      },
+      caf::others >> []() {cout<<"unkown message";}
   );
 }
 

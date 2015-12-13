@@ -72,6 +72,8 @@ void MasterNode::MainBehav(caf::event_based_actor * self, MasterNode * master) {
   self->become(
       [=](RegisterAtom, string ip, UInt16 port)->caf::message {
         NodeInfo node(ip, port);
+        node.is_live = true;
+        node.count = 0;
         Addr addr(ip, port);
         master->slave_list[addr] = node;
         cout<<"slave <" << ip<<"," << port <<"> success"<<endl;
@@ -118,11 +120,11 @@ void MasterNode::MonitorBehav(caf::event_based_actor * self, MasterNode * master
 vector<Addr> MasterNode::Notify(int type){
   auto target = subscr_list[type];
   string data = notify_handle[type]();
-  cout << "data:"<<data<<" slave:"<<target.size()<<endl;
   MultiProp<string> prop(target.size());
   for (auto i=0;i<target.size();i++)
     auto slave = caf::spawn(NotifyBehav, this, type, data, &prop, i);
   auto join_ret = prop.Join();
+  cout<<"notify complete"<<endl;
   vector<Addr> ret;
   for (auto i=0;i<target.size();i++)
     if (join_ret[i].flag != 0)
@@ -135,22 +137,111 @@ void MasterNode::NotifyBehav(caf::event_based_actor * self, MasterNode * master,
   auto slave_addr = master->subscr_list[type][id];
   try {
     auto slave = caf::io::remote_actor(slave_addr.first, slave_addr.second);
-    self->sync_send(slave,UpdateAtom::value, type, data).then(
+    //caf::anon_send(slave,UpdateAtom::value, type, data);
+    /*
+    self->sync_send(slave,UpdateAtom::value).then(
       [=](OkAtom) {
-        prop->Done(type, string(""), 0);
         cout << "slave <" << slave_addr.first<<","<<slave_addr.second
             << "> notify success" << endl;
+        prop->Done(id, string(""), 0);
       },
+
       caf::after(std::chrono::seconds(prop->timeout)) >> [=]() {
-        prop->Done(type, string(""), -1);
+
         cout << "slave <" << slave_addr.first<<","<<slave_addr.second
             << "> notify timeout" << endl;
+        prop->Done(id, string(""), -1);
       }
+
+    ); */
+    cout <<"notify <"<<slave_addr.first<<","<<slave_addr.second<<">"<<endl;
+    self->sync_send(slave, UpdateAtom::value, type, data).then(
+        [=](OkAtom) {
+          prop->Done(id, "", 0);
+          cout  << "notify  success" << endl;
+        },
+        caf::after(std::chrono::seconds(prop->timeout)) >> [=]() {
+          prop->Done(id, "", -1);
+          cout << "notify timeout" << endl;
+        }
     );
   } catch(caf::network_error & e) {
-    prop->Done(id, string(""), -1);
+    prop->Done(id, "", -1);
     cout << "can't conncet to slave<" << slave_addr.first <<","
         <<slave_addr.second<<">"<<endl;
   }
 }
+
+RetCode MasterNode::Dispatch(Addr addr, string job) {
+  Prop<string> prop;
+  caf::spawn(DispatchBehav, addr, job, &prop);
+  return prop.Join().flag;
+}
+
+void MasterNode::DispatchBehav(caf::event_based_actor * self,
+                               Addr addr, string job, Prop<string> * prop) {
+  try {
+    auto slave = caf::io::remote_actor(addr.first, addr.second);
+     self->sync_send(slave, DispatchAtom::value, job).then(
+         [=](OkAtom) {
+           prop->Done("", 0);
+         },
+         caf::after(std::chrono::seconds(prop->timeout)) >> [=]() {
+           prop->Done( "", -1);
+           cout << "notify timeout" << endl;
+         }
+     );
+  } catch(caf::network_error & e) {
+    prop->Done("", -1);
+  }
+}
+
+vector<Addr> MasterNode::BroadDispatch(vector<Addr> addr_list, string job) {
+  vector<Addr> ret;
+  MultiProp<string> prop(addr_list.size());
+  for (auto i=0;i<addr_list.size();i++)
+    caf::spawn(BDispatchBehav,addr_list, job, &prop,i);
+  auto join_ret = prop.Join();
+  for (auto i=0;i<addr_list.size();i++)
+    if (join_ret[i].flag != 0)
+      ret.push_back(addr_list[i]);
+  return ret;
+}
+
+void MasterNode::BDispatchBehav(caf::event_based_actor * self, vector<Addr> addr_list,
+                                string job, MultiProp<string> * prop, int id) {
+  try {
+    auto slave = caf::io::remote_actor(addr_list[id].first, addr_list[id].second);
+    self->sync_send(slave, DispatchAtom::value, job).then(
+        [=](OkAtom) {
+          prop->Done(id, "", 0);
+          cout << "run:" << job << endl;
+        },
+        caf::after(std::chrono::seconds(prop->timeout)) >> [=]() {
+          prop->Done(id, "", -1);
+          cout << "dispatch timeout" << endl;
+        }
+    );
+  } catch(caf::network_error & e) {
+    prop->Done(id, "", -1);
+  }
+}
+
+vector<Addr> MasterNode::GetLive() {
+  vector<Addr> ret;
+  for(auto i= slave_list.begin();i!=slave_list.end();i++)
+    if(i->second.is_live)
+      ret.push_back(Addr(i->second.ip,i->second.port));
+  return ret;
+}
+
+vector<Addr> MasterNode::GetDead() {
+  vector<Addr> ret;
+  for(auto i= slave_list.begin();i!=slave_list.end();i++)
+    if(!i->second.is_live)
+      ret.push_back(Addr(i->second.ip,i->second.port));
+  return ret;
+}
+
+
 

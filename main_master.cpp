@@ -41,18 +41,41 @@ using std::endl;
 
 
 int main() {
-  int type = 1;
-  string value = "hellow world";
+  int type1 = 1;
+  int type2 = 2;
+  string x = "hellow world";
+  string y = "world hellow";
   MasterNode master("127.0.0.1", 8000);
   master.Start();
   //master.Monitor();
   master.SetNotifyHandle(
-      type,
-      [&]( )->string{ return value;}
+      type1,
+      [&]()->string { return x;}
   );
+  master.SetNotifyHandle(
+      type2,
+      [&]()->string { return y;}
+  );
+  int type;
   while(true) {
-    cin>>value;
-    auto ret = master.Notify(type);
-    cout <<"notify fail :" << ret.size()<<endl;
+    cin>>type;
+    if (type == type1) {
+      cin >> x;
+      auto ret = master.Notify(type1);
+      cout <<"notify 1 fail :" << ret.size()<<endl;
+    }
+    else if (type == type2) {
+      cin >> y;
+      auto ret = master.Notify(type2);
+      cout <<"notify 2 fail :" << ret.size()<<endl;
+    }
+    else if (type == 3) {
+       string job;
+       cin >> job;
+       auto live = master.GetLive();
+       cout << "node:"<<live.size() <<endl;
+       auto ret = master.BroadDispatch(live, job);
+       cout << "fail:"<<ret.size()<<endl;
+    }
   }
 }

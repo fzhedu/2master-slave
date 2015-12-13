@@ -90,25 +90,34 @@ int main(){
 
   caf::await_all_actors_done();
   */
-  int type =1;
-  string value = "hello world";
+  int type1 = 1;
+  int type2 = 2;
+  string x = "hello world";
+  string y = "world hello";
   UInt16 port;
   cout << "input port" <<endl;
   cin >> port;
   SlaveNode slave("127.0.0.1",port,"127.0.0.1",8000);
   slave.Start();
-  //slave.Register();
+  slave.Register();
   //slave.Heartbeat();
-  slave.Subscribe(type);
+  //slave.Subscribe(type1);
+  //slave.Subscribe(type2);
   slave.SetUpdateHandle(
-      type,
-      [&](string _value) { value = _value;}
+      type1,
+      [&](string _value) { x = _value;}
+  );
+  slave.SetUpdateHandle(
+      type2,
+      [&](string _value) { y = _value;}
   );
   while(true){
     string cmp;
     cin>>cmp;
-    if (cmp == "show")
-      cout << value << endl;
+    if (cmp == "showx")
+      cout << x << endl;
+    else if (cmp == "showy")
+      cout << y << endl;
   }
 }
 

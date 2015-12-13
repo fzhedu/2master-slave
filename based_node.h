@@ -60,7 +60,7 @@ using NotifyAtom = caf::atom_constant<caf::atom("notify")>;
 typedef int RetCode;
 typedef unsigned short UInt16;
 typedef pair<string, UInt16> Addr;
-
+typedef pair<Addr,RetCode> NodeRetCode;
 const auto kTimeout = 3;
 const auto kMaxTryTimes = 10;
 /*
@@ -133,6 +133,9 @@ class MultiProp{
     count = c;
     value = new T[count]();
     flag = new RetCode[count]();
+    for (auto i=0;i<count;i++)
+      flag[count] = -1;
+    sem_init(&done, 0, 0);
   }
   ~MultiProp () {
     delete [] value;
@@ -146,6 +149,7 @@ class MultiProp{
   vector<CallRet<T>> Join(){
    for (auto i=0;i<count;i++)
      sem_wait(&done);
+   cout << "done:" <<done.__align<<endl;
    vector<CallRet<T>> ret;
    for (auto i=0;i<count;i++)
      ret.push_back(CallRet<T>(value[i], flag[i]));

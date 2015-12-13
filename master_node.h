@@ -59,9 +59,14 @@ class MasterNode: public BasedNode {
     notify_handle[type]=fun;
   }
   vector<Addr> Notify(int type);
+  RetCode Dispatch(Addr slave, string job);
+  vector<Addr> BroadDispatch(vector<Addr> slave, string job);
+  vector<Addr> GetLive();
+  vector<Addr> GetDead();
   map<Addr,NodeInfo> slave_list;
   map<int,vector<Addr>> subscr_list;
   map<int, function<string()>> notify_handle;
+
  private:
   static void * MainThread(void * arg);
   static void MainBehav(caf::event_based_actor * self, MasterNode * master);
@@ -70,5 +75,10 @@ class MasterNode: public BasedNode {
  private:
   static void NotifyBehav(caf::event_based_actor * self, MasterNode * master,
                           int type, string  data, MultiProp<string> * prop, int id);
+  static void DispatchBehav(caf::event_based_actor * self,
+                            Addr addr, string job, Prop<string> * prop);
+  static void BDispatchBehav(caf::event_based_actor * self, vector<Addr> addr_list,
+                             string job, MultiProp<string> * prop, int id);
+
 };
 #endif //  MASTER_NODE_H_ 
