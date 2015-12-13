@@ -44,51 +44,47 @@ using std::function;
 using caf::event_based_actor;
 using caf::behavior;
 using std::map;
-class SlaveNode: public BasedNode {
+
+
+
+class SlaveNode:public BasedNode {
  public:
-
-  SlaveNode(){}
-  SlaveNode(address self) : BasedNode(self) { }
-  SlaveNode(address self, address master)
-  : BasedNode(self),master_ip(master.first),master_port(master.second) { }
-  ~SlaveNode() { caf::shutdown();}
-  RetCode Start() ;
-  string GetStatus() const { return "Master\n";}
-  string master_ip;
-  Int16 master_port;
-  bool is_register = false;
-
- private:
-  static void SlaveRegBehav(caf::blocking_actor * self,SlaveNode * slave);
-  static void SlaveHeartbeatBehav(caf::blocking_actor * self, SlaveNode * slave);
-  static caf::behavior SlaveMainBehav(caf::event_based_actor * self, SlaveNode* slave);
-  static void * SlaveNodeThread(void * arg);
+  SlaveNode() {}
+  SlaveNode(string _ip, UInt16 _port, string _ip_master, UInt16 _port_master):
+    ip(_ip),port(_port),ip_master(_ip_master),port_master(_port_master) {
+    cout<<"ip"<<ip<<endl;
+    cout<<"port"<<port<<endl;
+    cout<<"ip_master"<<ip_master<<endl;
+    cout<<"port_master"<<port_master<<endl;
+  }
+  ~SlaveNode() {}
+  RetCode Start();
   RetCode Register();
   RetCode Heartbeat();
-};
-
-class Subscr{
- public:
-
-  Subscr(){}
-  Subscr(address self,address master):ip(self.first),port(self.second),
-      master_ip(master.first),master_port(master.second) { }
-  void Start();
-  RetCode Subscribe();
-  void SetUpdateHandle(function<void(string)> fun) { update_handle = fun;}
+  RetCode Subscribe(int type);
+  void SetUpdateHandle(int type, function<void(string)> fun) {
+    update_handle[type] = fun;
+  }
   string ip;
-  Int16 port;
-  string master_ip;
-  Int16 master_port;
-  function<void(string)> update_handle;
+  UInt16 port;
+  string ip_master;
+  UInt16 port_master;
+  map<int, function<void(string)>> update_handle;
+
+
  private:
-  void Update();
-  static void * SubscrThread(void * arg);
-  static caf::behavior SubscrMainBehav(caf::event_based_actor * self, Subscr * subscr);
-  static void UpdateBehav(caf::blocking_actor * self, Subscr * subscr,
-                          Prop<string> * prop);
-  static void SubscribeBehav(caf::blocking_actor * self, Subscr * subscr,
-                            Prop<string> * prop);
+ RetCode Update(int type);
+ RetCode Execute(string op);
+
+ private:
+ static void MainBehav(caf::event_based_actor * self, SlaveNode * slave);
+ static void * MainThread(void * arg);
+ static void RegBehav(caf::blocking_actor * self,SlaveNode * slave,
+                      Prop<string> * prop);
+ static void HeartbeatBehav(caf::event_based_actor * self, SlaveNode * slave);
+ static void SubscrBehav(caf::event_based_actor * self, SlaveNode * slave,
+                         int type, Prop<string>* prop);
 };
+
 
 #endif //  SLAVE_NODE_H_ 

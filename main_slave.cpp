@@ -80,13 +80,36 @@ void behavB(caf::event_based_actor * self) {
   );
 }
 
+caf::actor A;
+caf::actor B;
 
 int main(){
-
-  auto B = caf::spawn(behavB);
-  auto A = caf::spawn(behavA,&B);
+/*
+  B = caf::spawn(behavB);
+  A = caf::spawn(behavA,&B);
 
   caf::await_all_actors_done();
+  */
+  int type =1;
+  string value = "hello world";
+  UInt16 port;
+  cout << "input port" <<endl;
+  cin >> port;
+  SlaveNode slave("127.0.0.1",port,"127.0.0.1",8000);
+  slave.Start();
+  //slave.Register();
+  //slave.Heartbeat();
+  slave.Subscribe(type);
+  slave.SetUpdateHandle(
+      type,
+      [&](string _value) { value = _value;}
+  );
+  while(true){
+    string cmp;
+    cin>>cmp;
+    if (cmp == "show")
+      cout << value << endl;
+  }
 }
 
 

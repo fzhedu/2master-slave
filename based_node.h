@@ -37,12 +37,14 @@
 #include "caf/all.hpp"
 #include "caf/io/all.hpp"
 
+using caf::spawn_mode;
 using std::string;
 using std::cout;
 using std::cin;
 using std::endl;
 using std::pair;
 using std::function;
+using std::vector;
 using OkAtom = caf::atom_constant<caf::atom("ok")>;
 using FailAtom = caf::atom_constant<caf::atom("fail")>;
 using RequestRegAtom = caf::atom_constant<caf::atom("req_reg")>;
@@ -56,8 +58,8 @@ using UpdateAtom = caf::atom_constant<caf::atom("update")>;
 using NotifyAtom = caf::atom_constant<caf::atom("notify")>;
 
 typedef int RetCode;
-typedef unsigned short Int16;
-typedef pair<string, Int16> address;
+typedef unsigned short UInt16;
+typedef pair<string, UInt16> Addr;
 
 const auto kTimeout = 3;
 const auto kMaxTryTimes = 10;
@@ -65,52 +67,95 @@ const auto kMaxTryTimes = 10;
  * This is a block API, for all node to terminate;
  */
 
-class BasedNode {
- public:
-  BasedNode() {}
-  BasedNode(address self):ip(self.first),port(self.second) { }
-  ~BasedNode() {}
-  virtual string GetStatus() const = 0; // just for debug info
-  string ip;
-  Int16 port;
-};
+
 
 class NodeInfo {
  public:
   string ip;
-  Int16 port;
-  bool is_live = true;
-  unsigned count = 0;
-  NodeInfo() {}
-  NodeInfo(string _ip, Int16 _port):ip(_ip),port(_port) {}
+  UInt16 port;
+  bool is_live;
+  unsigned count;
+  NodeInfo():is_live(true),count(0) {}
+  NodeInfo(string _ip, UInt16 _port):ip(_ip),port(_port),
+      is_live(true),count(0) {
+  }
   void print(){
     cout<<"ip:"<<ip<<" port:"<<port<<" IsLive:"<<is_live
-        <<" HeartBeatCount:"<<count<<endl;
+        <<" Count:"<<count<<endl;
   }
+};
+
+class BasedNode {
+ public:
+  BasedNode() {}
+  BasedNode(string _ip, UInt16 _port):ip(_ip),port(_port) { }
+  ~BasedNode() {}
+  string ip;
+  UInt16 port;
+};
+
+template<typename T>
+class CallRet{
+ public:
+  CallRet(){}
+  CallRet(T _value, RetCode _flag):value(_value),flag(_flag) {}
+  T value;
+  RetCode flag = 0;
 };
 
 template<typename T>
 class Prop{
  public:
-  Prop() { sem_init(&done, 0, 0);}
-  ~Prop() { sem_destroy(&done);}
-  pair<T,RetCode> Join() {
-    sem_wait(&done);
-    return pair<T,RetCode>(value,flag);
-  }
-  void Done(const string & _context, bool _flag ){
-    value = T(_context);
-    flag = _flag;
-    sem_post(&done);
-  }
-  void SetTimeout(int _timeout) {timeout = _timeout;}
-  void SetFailureHandle(function<void()> handle){
-    failure_handle = handle;
-  }
+ Prop() { sem_init(&done, 0, 0);}
+ ~Prop() { sem_destroy(&done);}
+ CallRet<T> Join() {
+   sem_wait(&done);
+   return CallRet<T>(value,flag);
+ }
+ void Done(const string & _context, RetCode _flag ){
+   value = T(_context);
+   flag = _flag;
+   sem_post(&done);
+ }
+ void SetTimeout(int _timeout) {timeout = _timeout;}
  T value;
  RetCode flag = 0;
  int timeout = 3;
- function<void()> failure_handle = [=](){ cout << "fail" << endl;};
+
+ private:
+  sem_t done;
+};
+
+template<typename T>
+class MultiProp{
+ public:
+  MultiProp (int c) {
+    count = c;
+    value = new T[count]();
+    flag = new RetCode[count]();
+  }
+  ~MultiProp () {
+    delete [] value;
+    delete [] flag;
+  }
+  void Done(int id, const string & _value, bool _flag){
+    value[id] = T(_value);
+    flag[id] = _flag;
+    sem_post(&done);
+  }
+  vector<CallRet<T>> Join(){
+   for (auto i=0;i<count;i++)
+     sem_wait(&done);
+   vector<CallRet<T>> ret;
+   for (auto i=0;i<count;i++)
+     ret.push_back(CallRet<T>(value[i], flag[i]));
+   return ret;
+  }
+
+ T * value = nullptr;
+ RetCode * flag = nullptr;
+ int timeout = 3;
+ int count = 0;
  private:
   sem_t done;
 };

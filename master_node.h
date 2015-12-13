@@ -33,6 +33,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <unordered_map>
 #include <utility>
 #include <functional>
 #include "caf/all.hpp"
@@ -44,32 +45,30 @@ using std::map;
 using std::vector;
 using std::pair;
 using std::function;
+using std::unordered_map;
+
+
 class MasterNode: public BasedNode {
  public:
   MasterNode() {}
-  MasterNode(address addr):BasedNode(addr){ }
+  MasterNode(string ip, UInt16 port):BasedNode(ip, port){ }
   ~MasterNode() {}
   RetCode Start();
-  string GetStatus() const { return "Master\n";}
-  vector<NodeInfo> GetLive();
-  vector<NodeInfo> GetDead();
-  void Dispatch(vector<NodeInfo> slave_list, string op);
-  void Dispatch(NodeInfo slave, string op);
-  void Notify();
-  void SetNotifyHandle(function<string()> fun) { notify_handle = fun;}
-  void Subscribe(address addr) { subscr_list.push_back(addr);}
-  map<address, NodeInfo> cluster_info;
-  vector<address> subscr_list;
-  function<string()> notify_handle;
- private:
-  static void * MasterNodeThread(void * arg);
-  static behavior MasterMainBehav(event_based_actor * self, MasterNode * master);
-  static void MasterMonitorBehav(caf::blocking_actor * self, MasterNode * master);
   RetCode Monitor();
-  RetCode Clock();
+  void SetNotifyHandle(int type, function<string()> fun) {
+    notify_handle[type]=fun;
+  }
+  vector<Addr> Notify(int type);
+  map<Addr,NodeInfo> slave_list;
+  map<int,vector<Addr>> subscr_list;
+  map<int, function<string()>> notify_handle;
+ private:
+  static void * MainThread(void * arg);
+  static void MainBehav(caf::event_based_actor * self, MasterNode * master);
+  static void MonitorBehav(caf::event_based_actor * self, MasterNode * master);
 
+ private:
+  static void NotifyBehav(caf::event_based_actor * self, MasterNode * master,
+                          int type, string  data, MultiProp<string> * prop, int id);
 };
-
-
-
 #endif //  MASTER_NODE_H_ 

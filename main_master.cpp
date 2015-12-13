@@ -38,45 +38,21 @@ using std::cin;
 using std::cout;
 using std::endl;
 
-void behav(caf::blocking_actor * self , sem_t * done){
 
-  auto count = 0;
-  while(count < 3) {
-    cout <<  count << endl;
-    sleep(3);
-    count ++;
-  }
-  sem_post(done);
-}
 
 int main() {
-
-  cout << "This is master" << endl;
-  string x ="hello world";
-  MasterNode master(address("127.0.0.1",8000));
-  master.SetNotifyHandle(
-      [&](){ return x;}
-  );
+  int type = 1;
+  string value = "hellow world";
+  MasterNode master("127.0.0.1", 8000);
   master.Start();
+  //master.Monitor();
+  master.SetNotifyHandle(
+      type,
+      [&]( )->string{ return value;}
+  );
   while(true) {
-    //string op;
-    //cin>>op;
-    //auto slave_list = master.GetLive();
-    //master.Dispatch(slave_list, op);
-
-    //sleep(3);
-    //for (auto p=master.subscr_list.begin();p!=master.subscr_list.end();p++)
-    //  cout << p->first<<","<< p->second <<" ";
-    //cout <<"*****"<<endl;
-    cin >> x;
-    master.Notify();
+    cin>>value;
+    auto ret = master.Notify(type);
+    cout <<"notify fail :" << ret.size()<<endl;
   }
- /*
-  sem_t done;
-  sem_init(&done, 0, 0);
-  auto p = caf::spawn<caf::blocking_api>(behav, &done);
-  sem_wait(&done);
-  cout << "wait end;" <<endl;
-  */
-
 }

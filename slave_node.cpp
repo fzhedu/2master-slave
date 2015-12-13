@@ -47,165 +47,121 @@ using std::endl;
 using caf::event_based_actor;
 using caf::behavior;
 
-void SlaveNode::SlaveRegBehav(caf::blocking_actor * self,SlaveNode * slave){
-  auto master = caf::io::remote_actor(slave->master_ip, slave->master_port);
-  self->sync_send(master,RegisterAtom::value,slave->ip,slave->port).
-      await(
-      [&](OkAtom) {
-        slave->is_register = true;
-        cout << "register ok" << endl;
-      },
-      caf::after(std::chrono::seconds(kMaxTryTimes)) >> [&]() {
-        cout << "register timeout" << endl;
-      }
-  );
+
+
+RetCode SlaveNode::Start(){
+
+  int rc;
+  pthread_t pid;
+  rc = pthread_create(&pid, NULL, MainThread, (void *)this);
+  return rc == 0 ? 0 : -1;
 }
 
-void SlaveNode::SlaveHeartbeatBehav(caf::blocking_actor * self, SlaveNode * slave) {
-  while(true) {
-    auto master = caf::io::remote_actor(slave->master_ip,slave->master_port);
-    auto success = false;
-    self->sync_send(master, HeartbeatAtom::value, slave->ip, slave->port).
-        await(
-        [&](OkAtom) {
-          cout << "beats ok" << endl;
-          success = true;
-        },
-        caf::after(std::chrono::seconds(kTimeout)) >> [&]() {
-          cout << "heartbeat timeout" << endl;
-        }
-     );
-    if(success)
-      sleep(kTimeout);
-  }
-}
-
-caf::behavior SlaveNode::SlaveMainBehav(caf::event_based_actor * self, SlaveNode* slave) {
-  cout << "slave<" << slave->ip << ":" << slave->port << "> start" << endl;
-  /*
-   * register to master
-   */
-
-  return {
-   [=](DispatchAtom, string op) {
-    cout << "execute " << op << endl;
-    return caf::make_message(OkAtom::value);
-   }
-  };
-}
-
-void * SlaveNode::SlaveNodeThread(void * arg) {
+void * SlaveNode::MainThread(void * arg){
   SlaveNode * self = (SlaveNode*)arg;
-  auto slave = caf::spawn(SlaveMainBehav, self);
+  auto slave = caf::spawn(MainBehav, self);
   try {
-    caf::io::publish(slave, self->port,self->ip.c_str());
+    caf::io::publish(slave, self->port);
+    cout << "slave publish success" << endl;
   } catch (caf::bind_failure & e){
     cout << "the specified port is already in use" << endl;
   } catch( caf::network_error & e) {
     cout << "socket related errors occur " << endl;
   }
-  self->Register();
-  self->Heartbeat();
   caf::await_all_actors_done();
 }
 
-RetCode SlaveNode::Start() {
-  RetCode ret = 0;
-  pthread_t pid;
-  pthread_create(&pid, NULL, SlaveNodeThread, (void *)this);
-  return ret;
+void SlaveNode::MainBehav(caf::event_based_actor * self, SlaveNode * slave){
+  self->become(
+      [=](DispatchAtom) {},
+      [=](UpdateAtom, int type, string & data) {
+        cout << "update" << type <<" success" << endl;
+        slave->update_handle[type]( data);
+      },
+      caf::others >> [=]() {cout<<"unkown message";}
+  );
 }
 
-RetCode SlaveNode::SlaveNode::Register() {
-  auto count = 0;
-  while(!is_register && count < kMaxTryTimes) {
-    auto reg = caf::spawn<caf::blocking_api>(SlaveRegBehav, this);
-    sleep(kTimeout+1);
-  }
-  return is_register == true ? 0 : 1;
-}
-
-RetCode SlaveNode::SlaveNode::Heartbeat() {
-  auto heatbeat = caf::spawn<caf::blocking_api>(SlaveHeartbeatBehav, this);
-  return 0;
-}
-
-
-
-void Subscr::Start(){
-  pthread_t pid;
-  pthread_create(&pid, NULL, SubscrThread, (void *)this);
-}
-
-void * Subscr::SubscrThread(void * arg){
-  Subscr * subscr = (Subscr *)arg;
-  auto self = caf::spawn(Subscr::SubscrMainBehav, subscr);
-  caf::io::publish(self, subscr->port);
-  caf::await_all_actors_done();
-}
-
-caf::behavior Subscr::SubscrMainBehav(caf::event_based_actor * self, Subscr * subscr) {
-  auto ret = subscr->Subscribe();
-  if (ret==0)
-    return {
-      [=](UpdateAtom){ subscr->Update();}
-    };
-  else
-    return {};
-}
-
-void Subscr::Update(){
+RetCode SlaveNode::Register() {
   Prop<string> prop;
-  caf::spawn<caf::blocking_api>(Subscr::UpdateBehav, this, &prop);
-  auto ret = prop.Join();
-  update_handle(prop.value);
+  auto reg = caf::spawn<caf::blocking_api>(RegBehav,this, &prop);
+  return prop.Join().flag;
 }
 
-void Subscr::UpdateBehav(caf::blocking_actor * self, Subscr * subscr,
+void SlaveNode::RegBehav(caf::blocking_actor * self, SlaveNode * slave,
                          Prop<string> * prop) {
   try {
-    auto master = caf::io::remote_actor(subscr->master_ip,subscr->master_port);
-    self->on_sync_failure(prop->failure_handle);
-    self->sync_send(master, UpdateAtom::value).await(
-        [=](OkAtom, string context){
-          prop->Done(context, 0);
-          cout << "update success" << endl;
-        },
-        caf::after(std::chrono::seconds(prop->timeout)) >> [=]() {
-          prop->Done(string(""), -1);
-          cout << "update timeout" << endl;
-        }
-    );
-  } catch(caf::network_error & e) {
-    cout << "subscr link to master fail when update" << endl;
-  }
-}
-
-RetCode Subscr::Subscribe(){
-  Prop<string> prop;
-
-  caf::spawn<caf::blocking_api>(Subscr::SubscribeBehav, this, & prop);
-  return prop.Join().second;
-}
-
-void Subscr::SubscribeBehav(caf::blocking_actor * self, Subscr * subscr,
-                           Prop<string> * prop) {
-  try {
-    auto master = caf::io::remote_actor(subscr->master_ip, subscr->master_port);
-    self->sync_send(master, SubscrAtom::value, subscr->ip, subscr->port).
-        await(
-            [=](OkAtom ){
-              cout << "subscribe success" << endl;
-              prop->Done(string(""), 0);
-            },
+    auto master = caf::io::remote_actor(slave->ip_master, slave->port_master);
+    self->on_sync_failure([=](){
+      cout << "slave register fail " << endl;
+    });
+    self->sync_send(master, RegisterAtom::value, slave->ip, slave->port).await(
+            [=](OkAtom) {
+              prop->Done("", 0);
+              cout <<"register success" <<endl;
+             },
             caf::after(std::chrono::seconds(prop->timeout)) >> [=]() {
-              cout << "subscribe timeout" << endl;
               prop->Done(string(""), -1);
+              cout << "slave register timeout" << endl;
             }
         );
-  } catch (caf::network_error & e) {
-    cout << "subscr link to master fail where subscribe" << endl;\
+  } catch(caf::network_error & e) {
+    cout << "cannot't connect to <"<<slave->ip_master<<","
+        <<slave->port_master<<">"<<endl;
     prop->Done(string(""), -1);
   }
 }
+
+RetCode SlaveNode::Heartbeat() {
+  auto heatbeat = caf::spawn(HeartbeatBehav, this);
+}
+
+void SlaveNode::HeartbeatBehav(caf::event_based_actor * self,SlaveNode * slave) {
+  self->become(
+      [=](HeartbeatAtom) {
+        try {
+          auto master = caf::io::remote_actor(slave->ip_master, slave->port_master);
+          self->sync_send(master, HeartbeatAtom::value, slave->ip, slave->port).then(
+              [=](OkAtom) { },
+              caf::after(std::chrono::seconds(kTimeout)) >> [=]() {
+                cout << "heartbeat timeout" << endl;
+              }
+          );
+        } catch (caf::network_error & e) {
+          cout <<"cannot't connect when heartbeat" << endl;
+        }
+        self->delayed_send(self,std::chrono::seconds(kTimeout),HeartbeatAtom::value);
+      }
+  );
+  self->send(self, HeartbeatAtom::value);
+}
+
+RetCode SlaveNode::Subscribe(int type) {
+  Prop<string> prop;
+  auto subscr = caf::spawn(SubscrBehav, this, type, &prop);
+  return prop.Join().flag;
+}
+
+void SlaveNode::SubscrBehav(caf::event_based_actor * self, SlaveNode * slave,
+                            int type, Prop<string>* prop) {
+  try {
+    auto master = caf::io::remote_actor(slave->ip_master,slave->port_master);
+    self->sync_send(master,SubscrAtom::value,slave->ip,slave->port,type).
+        then(
+        [=](OkAtom) {
+          prop->Done(string(""), 0);
+          cout << "subscr success" << endl;
+        },
+        caf::after(std::chrono::seconds(prop->timeout)) >> [=]() {
+          prop->Done(string(""), -1);
+          cout << "subscr fail" << endl;
+        }
+        );
+  } catch(caf::network_error & e) {
+    prop->Done(string(""), -1);
+  }
+}
+
+
+
 #endif //  SLAVE_NODE_CPP_ 

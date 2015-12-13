@@ -44,172 +44,113 @@ using caf::spawn;
 using caf::io::publish;
 using caf::actor;
 
-behavior MasterNode::MasterMainBehav(event_based_actor * self, MasterNode * master) {
-  cout  << master->ip << ":" << master->port << endl;
-  self->on_sync_failure(
-    [=] {cout<<"connect fail"<<endl;}
-    );
-  return {
-    /*
-     * listen to slave's register message
-     */
-    [=] (RegisterAtom, string  ip, Int16 port) -> caf::message {
-       NodeInfo slave;
-       slave.ip = ip;
-       slave.port = port;
-       slave.is_live = true;
-       slave.count = 0;
-       master->cluster_info[address(ip, port)] = slave;
-      /*
-       * master return a 'ok' message as response of slave register request
-       */
-      cout << "Cluster Info" << endl;
-      for(auto p = master->cluster_info.begin();p!=master->cluster_info.end();p++)
-        p->second.print();
-      return caf::make_message(OkAtom::value);
-    },
-    [=] (HeartbeatAtom, string  ip, Int16 port)-> caf::message  {
+static caf::event_based_actor main_loop;
 
-      cout << "heartbeat from slave<" << ip <<"," << port <<">" << endl;
-      master->cluster_info[address(ip, port)].count = 0;
-      return caf::make_message(OkAtom::value);
-    },
-    [=] (MonitorAtom) {
-      for(auto p = master->cluster_info.begin();p!=master->cluster_info.end();p++) {
-        p->second.count++;
-        if (p->second.count >= kMaxTryTimes) {
-          p->second.is_live = false;
-          cout << "slave<" << p->second.ip <<"."<< p->second.port << "> dead"<< endl;
 
-          /*
-           *  HeartBeatCount may be large than int_max
-           */
-          if (p->second.count > kMaxTryTimes * kMaxTryTimes) {
-            p->second.count = kMaxTryTimes;
-          }
-        } else {
-          p->second.is_live = true;
-        }
-      }
-    },
-    [=](DispatchAtom, NodeInfo slave, string op) {
-     try {
-        auto sla = caf::io::remote_actor(slave.ip, slave.port);
-        self->sync_send(sla,DispatchAtom::value,op).then(
-            [=](OkAtom) {
-              cout<<"dispatch to slave<"<<slave.ip<<","<<slave.port<<
-                  "> op<" << op << "> success"<<endl;
-            },
-            caf::after(std::chrono::seconds(kTimeout)) >> [=]() {
-              cout<<"dispatch time out"<<endl;
-            }
-        );
-     } catch (caf::network_error & e) {
-       cout << "dispatch fail" << endl;
-     }
-    },
-    [=](SubscrAtom, string ip, Int16 port)->caf::message{
-        master->Subscribe(address(ip,port));
-        cout<<"recieve from subscr <"<<ip<<","<<port<<">"<<endl;
-        return caf::make_message(OkAtom::value);
-    },
-    [=](NotifyAtom) {
-      for (auto itr = master->subscr_list.begin();
-          itr != master->subscr_list.end();itr++){
-        try {
-          auto subscr = caf::io::remote_actor(itr->first,itr->second);
-          caf::anon_send(subscr,UpdateAtom::value);
-        } catch (caf::network_error & e) {
-          cout << "notify <" << itr->first <<","<<itr->second << "> fail" << endl;
-        }
-      }
-
-    },
-    [=](UpdateAtom)->caf::message {
-      string msg = master->notify_handle();
-      return caf::make_message(OkAtom::value, msg);
-    },
-    caf::others >> []() {
-      cout << "unkonw message" << endl;
-    }
-  };
+RetCode MasterNode::Start(){
+  int rc;
+  pthread_t pid;
+  rc = pthread_create(&pid, NULL, MainThread, (void *)this);
+  return rc == 0 ? 0 : -1;
 }
 
-void MasterNode::MasterMonitorBehav(caf::blocking_actor * self, MasterNode * master) {
-  while(true) {
-    auto mas = caf::io::remote_actor(master->ip,master->port);
-    caf::anon_send(mas,MonitorAtom::value);
-    sleep(kTimeout);
-  }
-}
-
-void * MasterNode::MasterNodeThread(void * arg) {
-  MasterNode * self = (MasterNode *)arg;
-  auto master = caf::spawn(MasterMainBehav, self);
-  //caf::anon_send(act, RegisterAtom::value, string("127.0.0.1"),(Int16)999);
+void * MasterNode::MainThread(void * arg) {
+  MasterNode * self = (MasterNode*)arg;
+  auto slave = caf::spawn(MainBehav, self);
   try {
-    /*
-     * publish master node to internet, and provide a service
-     */
-    caf::io::publish(master, self->port);
-    cout << "publish master success" << endl;
-  } catch (caf::bind_failure & e) {
-     cout << "the specified port is already in use" << endl;
-  } catch (caf::network_error & e) {
+  caf::io::publish(slave, self->port);
+  } catch (caf::bind_failure & e){
+    cout << "the specified port is already in use" << endl;
+  } catch( caf::network_error & e) {
     cout << "socket related errors occur " << endl;
   }
-  self->Monitor();
+  cout << "master start" << endl;
   caf::await_all_actors_done();
 }
 
-RetCode MasterNode::Start()  {
-  RetCode ret = 0;
-  pthread_t pid;
-  pthread_create(&pid, NULL, MasterNodeThread, this);
+void MasterNode::MainBehav(caf::event_based_actor * self, MasterNode * master) {
+  self->become(
+      [=](RegisterAtom, string ip, UInt16 port)->caf::message {
+        NodeInfo node(ip, port);
+        Addr addr(ip, port);
+        master->slave_list[addr] = node;
+        cout<<"slave <" << ip<<"," << port <<"> success"<<endl;
+        return caf::make_message(OkAtom::value);
+      },
+     [=](HeartbeatAtom, string ip, UInt16 port)->caf::message {
+        cout << "heartbeat from <"<<ip<<","<<port<<">"<<endl;
+        master->slave_list[Addr(ip, port)].count = 0;
+        master->slave_list[Addr(ip, port)].is_live = true;
+        return caf::make_message(OkAtom::value);
+      },
+      [=](SubscrAtom, string ip, UInt16 port, int type)->caf::message {
+        cout << "slave<"<<ip<<","<<port<<"> subscr " << type <<endl;
+        master->subscr_list[type].push_back(Addr(ip, port));
+        return caf::make_message(OkAtom::value);
+      },
+      caf::others >> [=]() {cout << "unkown message" << endl;}
+  );
+}
+
+RetCode MasterNode::Monitor(){
+  auto monitor = caf::spawn(MonitorBehav, this);
+}
+
+void MasterNode::MonitorBehav(caf::event_based_actor * self, MasterNode * master) {
+  self->become(
+      [=](MonitorAtom) {
+        for (auto p=master->slave_list.begin();p!=master->slave_list.end();p++){
+          p->second.count++;
+          if (p->second.count >= kMaxTryTimes){
+            p->second.is_live = false;
+            cout << "slave<" << p->second.ip <<"."<< p->second.port << "> dead"<< endl;
+            if (p->second.count > kMaxTryTimes * kMaxTryTimes) {
+              p->second.count = kMaxTryTimes;
+            }
+          }
+        }
+        self->delayed_send(self,std::chrono::seconds(kTimeout), MonitorAtom::value);
+      }
+  );
+  self->send(self,MonitorAtom::value);
+}
+
+vector<Addr> MasterNode::Notify(int type){
+  auto target = subscr_list[type];
+  string data = notify_handle[type]();
+  cout << "data:"<<data<<" slave:"<<target.size()<<endl;
+  MultiProp<string> prop(target.size());
+  for (auto i=0;i<target.size();i++)
+    auto slave = caf::spawn(NotifyBehav, this, type, data, &prop, i);
+  auto join_ret = prop.Join();
+  vector<Addr> ret;
+  for (auto i=0;i<target.size();i++)
+    if (join_ret[i].flag != 0)
+      ret.push_back(target[i]);
   return ret;
 }
 
-RetCode MasterNode::Monitor() {
-  auto monitor = caf::spawn<caf::blocking_api>(MasterMonitorBehav, this);
-}
-
-vector<NodeInfo> MasterNode::GetLive() {
-  vector<NodeInfo> ret;
-  for(auto p = cluster_info.begin();p!=cluster_info.end();p++) {
-    if (p->second.is_live)
-        ret.push_back(p->second);
-  }
-  return ret;
-}
-
-vector<NodeInfo> MasterNode::GetDead() {
-  vector<NodeInfo> ret;
-  for(auto p = cluster_info.begin();p!=cluster_info.end();p++) {
-    if (!p->second.is_live)
-        ret.push_back(p->second);
-  }
-  return ret;
-}
-
-void MasterNode::Dispatch(NodeInfo slave, string op) {
-  auto master = caf::io::remote_actor(ip, port);
-  caf::anon_send(master, DispatchAtom::value, slave, op);
-}
-
-void MasterNode::Dispatch(vector<NodeInfo> slave_list, string op) {
-  for (auto itr=slave_list.begin();itr!=slave_list.end();itr++)
-    MasterNode::Dispatch(*itr, op);
-}
-
-void MasterNode::Notify(){
+void MasterNode::NotifyBehav(caf::event_based_actor * self, MasterNode * master,
+                      int type, string  data, MultiProp<string> * prop, int id){
+  auto slave_addr = master->subscr_list[type][id];
   try {
-    auto mas = caf::io::remote_actor(ip, port);
-    caf::anon_send(mas, NotifyAtom::value);
-  } catch (caf::network_error & e) {
-    cout << "connect to  master fail" << endl;
+    auto slave = caf::io::remote_actor(slave_addr.first, slave_addr.second);
+    self->sync_send(slave,UpdateAtom::value, type, data).then(
+      [=](OkAtom) {
+        prop->Done(type, string(""), 0);
+        cout << "slave <" << slave_addr.first<<","<<slave_addr.second
+            << "> notify success" << endl;
+      },
+      caf::after(std::chrono::seconds(prop->timeout)) >> [=]() {
+        prop->Done(type, string(""), -1);
+        cout << "slave <" << slave_addr.first<<","<<slave_addr.second
+            << "> notify timeout" << endl;
+      }
+    );
+  } catch(caf::network_error & e) {
+    prop->Done(id, string(""), -1);
+    cout << "can't conncet to slave<" << slave_addr.first <<","
+        <<slave_addr.second<<">"<<endl;
   }
 }
-
-
-
 
