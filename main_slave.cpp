@@ -93,23 +93,23 @@ int main(){
   int type1 = 1;
   int type2 = 2;
   string x = "hello world";
-  string y = "world hello";
+  SerTest y;
   UInt16 port;
   cout << "input port" <<endl;
   cin >> port;
   SlaveNode slave("127.0.0.1",port,"127.0.0.1",8000);
   slave.Start();
-  slave.Register();
+  //slave.Register();
   //slave.Heartbeat();
-  //slave.Subscribe(type1);
-  //slave.Subscribe(type2);
+  slave.Subscribe(type1);
+  slave.Subscribe(type2);
   slave.SetUpdateHandle(
       type1,
       [&](string _value) { x = _value;}
   );
   slave.SetUpdateHandle(
       type2,
-      [&](string _value) { y = _value;}
+      [&](string _value) { y = Derialize<SerTest>(_value);}
   );
   while(true){
     string cmp;
@@ -117,7 +117,7 @@ int main(){
     if (cmp == "showx")
       cout << x << endl;
     else if (cmp == "showy")
-      cout << y << endl;
+      y.print();
   }
 }
 

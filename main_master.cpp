@@ -44,7 +44,7 @@ int main() {
   int type1 = 1;
   int type2 = 2;
   string x = "hellow world";
-  string y = "world hellow";
+  SerTest y;
   MasterNode master("127.0.0.1", 8000);
   master.Start();
   //master.Monitor();
@@ -54,7 +54,7 @@ int main() {
   );
   master.SetNotifyHandle(
       type2,
-      [&]()->string { return y;}
+      [&]()->string { return Serialize<SerTest>(y);}
   );
   int type;
   while(true) {
@@ -65,7 +65,8 @@ int main() {
       cout <<"notify 1 fail :" << ret.size()<<endl;
     }
     else if (type == type2) {
-      cin >> y;
+      cout << "input a(int), b(string), c(double)"<<endl;
+      cin >> y.a >> y.b >>y.c;
       auto ret = master.Notify(type2);
       cout <<"notify 2 fail :" << ret.size()<<endl;
     }
@@ -79,3 +80,14 @@ int main() {
     }
   }
 }
+
+/*
+int main(){
+  SerializeTest t(1, "hello world", 0.5);
+  t.print();
+
+  auto string_t = Serialize<SerializeTest>(t);
+  auto new_t = Derialize<SerializeTest>(string_t);
+  new_t.print();
+}
+*/

@@ -30,10 +30,15 @@
 #define BASED_NODE_H_
 
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <utility>
 #include <functional>
 #include <semaphore.h>
+#include <sstream>
+#include <boost/archive/text_oarchive.hpp>
+#include <boost/archive/text_iarchive.hpp>
+#include <boost/serialization/utility.hpp>
 #include "caf/all.hpp"
 #include "caf/io/all.hpp"
 
@@ -45,6 +50,7 @@ using std::endl;
 using std::pair;
 using std::function;
 using std::vector;
+using std::stringstream;
 using OkAtom = caf::atom_constant<caf::atom("ok")>;
 using FailAtom = caf::atom_constant<caf::atom("fail")>;
 using RequestRegAtom = caf::atom_constant<caf::atom("req_reg")>;
@@ -163,5 +169,45 @@ class MultiProp{
  private:
   sem_t done;
 };
+
+class SerTest{
+ public:
+  int a;
+  string b;
+  double c;
+  SerTest(){}
+  SerTest(int _a, string _b, double _c):
+    a(_a), b(_b), c(_c) { }
+  void print() {
+    cout << "a:" << a << endl;
+    cout << "b:" << b << endl;
+    cout << "c:" << c << endl;
+  }
+ private:
+  friend class boost::serialization::access;
+
+  template<class Archive>
+  void serialize(Archive & ar, const unsigned int version) {
+    ar & a & b & c;
+  }
+
+};
+
+template<typename T>
+string Serialize(T obj) {
+  stringstream ss;
+  boost::archive::text_oarchive oa(ss);
+  oa << obj;
+  return ss.str();
+}
+
+template<typename T>
+T Derialize(string obj) {
+  T ret;
+  stringstream ss(obj);
+  boost::archive::text_iarchive ia(ss);
+  ia >> ret;
+  return ret;
+}
 
 #endif //  BASED_NODE_H_ 
