@@ -63,6 +63,10 @@ class MasterNode: public BasedNode {
   vector<Addr> BroadDispatch(vector<Addr> slave, string job);
   vector<Addr> GetLive();
   vector<Addr> GetDead();
+  void Exit() {
+    auto master = caf::io::remote_actor("127.0.0.1", port);
+    caf::anon_send(master, ExitAtom::value);
+  }
   map<Addr,NodeInfo> slave_list;
   map<int,vector<Addr>> subscr_list;
   map<int, function<string()>> notify_handle;

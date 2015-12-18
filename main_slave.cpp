@@ -99,7 +99,7 @@ int main(){
   cin >> port;
   SlaveNode slave("127.0.0.1",port,"127.0.0.1",8000);
   slave.Start();
-  //slave.Register();
+  slave.Register();
   //slave.Heartbeat();
   slave.Subscribe(type1);
   slave.Subscribe(type2);
@@ -111,6 +111,9 @@ int main(){
       type2,
       [&](string _value) { y = Derialize<SerTest>(_value);}
   );
+  slave.SetJobHandle(
+      [&](string job) { cout << "job:" << job << endl;}
+  );
   while(true){
     string cmp;
     cin>>cmp;
@@ -118,6 +121,8 @@ int main(){
       cout << x << endl;
     else if (cmp == "showy")
       y.print();
+    else if (cmp == "exit")
+      slave.Exit();
   }
 }
 

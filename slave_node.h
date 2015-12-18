@@ -52,10 +52,6 @@ class SlaveNode:public BasedNode {
   SlaveNode() {}
   SlaveNode(string _ip, UInt16 _port, string _ip_master, UInt16 _port_master):
     ip(_ip),port(_port),ip_master(_ip_master),port_master(_port_master) {
-    cout<<"ip"<<ip<<endl;
-    cout<<"port"<<port<<endl;
-    cout<<"ip_master"<<ip_master<<endl;
-    cout<<"port_master"<<port_master<<endl;
   }
   ~SlaveNode() {}
   RetCode Start();
@@ -65,12 +61,20 @@ class SlaveNode:public BasedNode {
   void SetUpdateHandle(int type, function<void(string)> fun) {
     update_handle[type] = fun;
   }
+  void SetJobHandle(function<void(string)> fun) {
+    job_handle = fun;
+  }
+  void Exit(){
+    auto slave = caf::io::remote_actor("127.0.0.1", port);
+    caf::anon_send(slave, ExitAtom::value);
+  }
   string ip;
   UInt16 port;
   string ip_master;
   UInt16 port_master;
+  bool isPub = false;
   map<int, function<void(string)>> update_handle;
-
+  function<void(string)> job_handle;
 
  private:
  RetCode Update(int type);
@@ -84,6 +88,7 @@ class SlaveNode:public BasedNode {
  static void HeartbeatBehav(caf::event_based_actor * self, SlaveNode * slave);
  static void SubscrBehav(caf::event_based_actor * self, SlaveNode * slave,
                          int type, Prop<string>* prop);
+ static void JobBehav(caf::event_based_actor * self, SlaveNode * slave, string job);
 };
 
 

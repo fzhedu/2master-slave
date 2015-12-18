@@ -62,6 +62,7 @@ using ExecuteAtom = caf::atom_constant<caf::atom("execute")>;
 using SubscrAtom = caf::atom_constant<caf::atom("subscr")>;
 using UpdateAtom = caf::atom_constant<caf::atom("update")>;
 using NotifyAtom = caf::atom_constant<caf::atom("notify")>;
+using ExitAtom = caf::atom_constant<caf::atom("exit")>;
 
 typedef int RetCode;
 typedef unsigned short UInt16;

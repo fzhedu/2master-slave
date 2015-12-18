@@ -33,6 +33,7 @@
 #include <semaphore.h>
 #include "caf/all.hpp"
 #include "caf/io/all.hpp"
+
 using std::string;
 using std::cin;
 using std::cout;
@@ -56,21 +57,21 @@ int main() {
       type2,
       [&]()->string { return Serialize<SerTest>(y);}
   );
-  int type;
+  string cmd;
   while(true) {
-    cin>>type;
-    if (type == type1) {
+    cin>>cmd;
+    if (cmd == "notify1") {
       cin >> x;
       auto ret = master.Notify(type1);
       cout <<"notify 1 fail :" << ret.size()<<endl;
     }
-    else if (type == type2) {
+    else if (cmd == "notify2") {
       cout << "input a(int), b(string), c(double)"<<endl;
       cin >> y.a >> y.b >>y.c;
       auto ret = master.Notify(type2);
       cout <<"notify 2 fail :" << ret.size()<<endl;
     }
-    else if (type == 3) {
+    else if (cmd == "dispatch") {
        string job;
        cin >> job;
        auto live = master.GetLive();

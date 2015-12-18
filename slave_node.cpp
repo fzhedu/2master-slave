@@ -65,8 +65,10 @@ void * SlaveNode::MainThread(void * arg){
     cout << "slave publish success" << endl;
   } catch (caf::bind_failure & e){
     cout << "the specified port is already in use" << endl;
+
   } catch( caf::network_error & e) {
-    cout << "socket related errors occur " << endl;
+    cout << "slave socket related errors occur " << endl;
+
   }
   caf::await_all_actors_done();
 }
@@ -74,8 +76,8 @@ void * SlaveNode::MainThread(void * arg){
 void SlaveNode::MainBehav(caf::event_based_actor * self, SlaveNode * slave){
   self->become(
       [=](DispatchAtom, string job)->caf::message {
-        cout << "run:" << job << endl;
-
+        auto jobact = caf::spawn(JobBehav,slave, job);
+        //slave->job_handle(job);
         return caf::make_message(OkAtom::value);
       },
       [=](UpdateAtom, int type, string data)->caf::message  {
@@ -83,14 +85,20 @@ void SlaveNode::MainBehav(caf::event_based_actor * self, SlaveNode * slave){
         slave->update_handle[type]( data);
         return caf::make_message(OkAtom::value);
       },
-      caf::others >> []() {cout<<"unkown message";}
+      [=](ExitAtom) {
+        //caf::shutdown();
+        cout << "slave exit success" << endl;
+        exit(0);
+      },
+      caf::others >> []() {cout<<"unkown message"<<endl;}
   );
 }
 
 RetCode SlaveNode::Register() {
   Prop<string> prop;
   auto reg = caf::spawn<caf::blocking_api>(RegBehav,this, &prop);
-  return prop.Join().flag;
+  auto ret = prop.Join().flag;
+  return ret;
 }
 
 void SlaveNode::RegBehav(caf::blocking_actor * self, SlaveNode * slave,
@@ -167,6 +175,8 @@ void SlaveNode::SubscrBehav(caf::event_based_actor * self, SlaveNode * slave,
   }
 }
 
-
+void SlaveNode::JobBehav(caf::event_based_actor * self, SlaveNode * slave, string job) {
+  slave->job_handle(job);
+}
 
 #endif //  SLAVE_NODE_CPP_ 
