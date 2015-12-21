@@ -58,9 +58,9 @@ class MasterNode: public BasedNode {
   void SetNotifyHandle(int type, function<string()> fun) {
     notify_handle[type]=fun;
   }
-  vector<Addr> Notify(int type);
+  vector<pair<int, RetCode>> Notify(int type);
   RetCode Dispatch(Addr slave, string job);
-  vector<Addr> BroadDispatch(vector<Addr> slave, string job);
+  vector<pair<int, RetCode>> BroadDispatch(vector<Addr> slave_list, string job);
   vector<Addr> GetLive();
   vector<Addr> GetDead();
   void Exit() {
