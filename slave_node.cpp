@@ -46,7 +46,7 @@ using std::cout;
 using std::endl;
 using caf::event_based_actor;
 using caf::behavior;
-
+using caf::aout;
 
 
 RetCode SlaveNode::Start(){
@@ -95,9 +95,27 @@ void SlaveNode::MainBehav(caf::event_based_actor * self, SlaveNode * slave){
 }
 
 RetCode SlaveNode::Register() {
-  Prop<string> prop;
-  auto reg = caf::spawn<caf::blocking_api>(RegBehav,this, &prop);
-  auto ret = prop.Join().flag;
+  RetCode ret = 0;
+  caf::scoped_actor self;
+  try {
+    auto master = caf::io::remote_actor(ip_master, port_master);
+    self->sync_send(master, RegisterAtom::value, ip, port).await(
+            [&](OkAtom) {
+               cout <<"registe r success" <<endl;
+             },
+             [&](const caf::sync_exited_msg & msg){
+               ret = -1;
+               cout << "register link fail" << endl;
+             },
+            caf::after(std::chrono::seconds(kTimeout)) >> [&]() {
+               ret = -1;
+               cout << "slave register timeout" << endl;
+            }
+        );
+  } catch(caf::network_error & e) {
+    ret = -1;
+    cout << "cannot't connect to <"<<ip_master<<","<< port_master<<">"<<endl;
+  }
   return ret;
 }
 
@@ -150,9 +168,38 @@ void SlaveNode::HeartbeatBehav(caf::event_based_actor * self,SlaveNode * slave) 
 }
 
 RetCode SlaveNode::Subscribe(int type) {
+  /*
   Prop<string> prop;
   auto subscr = caf::spawn(SubscrBehav, this, type, &prop);
   return prop.Join().flag;
+  */
+  caf::scoped_actor self;
+  RetCode ret = 0;
+  try {
+    auto master = caf::io::remote_actor(ip_master, port_master);
+    self->sync_send(master,SubscrAtom::value, ip, port,type).
+        await(
+          [&](OkAtom) {
+            //prop->Done(string(""), 0);
+            ret = -1;
+            cout << "subscr success" << endl;
+          },
+          [&](const caf::sync_exited_msg & msg){
+            ret = -1;
+            cout << "register link fail" << endl;
+          },
+          caf::after(std::chrono::seconds(kTimeout)) >> [&]() {
+            //prop->Done(string(""), -1);
+            ret = -1;
+            cout << "subscr fail" << endl;
+          }
+        );
+  } catch(caf::network_error & e) {
+    //prop->Done(string(""), -1);
+    ret = -1;
+    cout << "subscr network error" << endl;
+  }
+  return ret;
 }
 
 void SlaveNode::SubscrBehav(caf::event_based_actor * self, SlaveNode * slave,

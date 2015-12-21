@@ -45,8 +45,6 @@ using caf::event_based_actor;
 using caf::behavior;
 using std::map;
 
-
-
 class SlaveNode:public BasedNode {
  public:
   SlaveNode() {}
@@ -89,6 +87,8 @@ class SlaveNode:public BasedNode {
  static void SubscrBehav(caf::event_based_actor * self, SlaveNode * slave,
                          int type, Prop<string>* prop);
  static void JobBehav(caf::event_based_actor * self, SlaveNode * slave, string job);
+ static void EmptyBehav(caf::blocking_actor * self) { }
+
 };
 
 
