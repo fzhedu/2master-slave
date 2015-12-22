@@ -68,6 +68,10 @@ void *MasterNode::MainThread(void *arg) {
 
 void MasterNode::MainBehav(caf::event_based_actor *self, MasterNode *master) {
   self->become(
+      /**
+       * Master receive slave(indicated by <ip, port>) register-message and reply ok-message.
+       * Add registered slave's info to "slave_list"
+       */
       [=](RegisterAtom, string ip, UInt16 port) -> caf::message {
         NodeInfo node(ip, port);
         node.is_live = true;
@@ -77,12 +81,20 @@ void MasterNode::MainBehav(caf::event_based_actor *self, MasterNode *master) {
         cout << "slave <" << ip << "," << port << "> success" << endl;
         return caf::make_message(OkAtom::value);
       },
+      /**
+       * Master receive slave (indicated by <ip, port>) heart beat message.
+       * This message clear slave's count to 0 and set it to alive status
+       */
       [=](HeartbeatAtom, string ip, UInt16 port) -> caf::message {
         cout << "heartbeat from <" << ip << "," << port << ">" << endl;
         master->slave_list[Addr(ip, port)].count = 0;
         master->slave_list[Addr(ip, port)].is_live = true;
         return caf::make_message(OkAtom::value);
       },
+      /**
+       * Master receive slave's(indicated by <ip, port>)
+       * subscribe message with theme "type"
+       */
       [=](SubscrAtom, string ip, UInt16 port, int type) -> caf::message {
         cout << "slave<" << ip << "," << port << "> subscr " << type << endl;
         bool exist = false;
@@ -103,15 +115,24 @@ void MasterNode::MainBehav(caf::event_based_actor *self, MasterNode *master) {
       },
       caf::others >> [=]() { cout << "unkown message" << endl; });
 }
-
+/**
+ * Master start monitor thread
+ */
 RetCode MasterNode::Monitor() { auto monitor = caf::spawn(MonitorBehav, this); }
 
+/**
+ * Monitor thread's behavior
+ */
 void MasterNode::MonitorBehav(caf::event_based_actor *self,
                               MasterNode *master) {
   self->become([=](MonitorAtom) {
     for (auto p = master->slave_list.begin(); p != master->slave_list.end();
          p++) {
       p->second.count++;
+      /*
+       * If count large than "kMaxTryTimes", this slave node
+       *  will be regarded as dead.
+       */
       if (p->second.count >= kMaxTryTimes) {
         p->second.is_live = false;
         cout << "slave<" << p->second.ip << "." << p->second.port << "> dead"
@@ -126,7 +147,9 @@ void MasterNode::MonitorBehav(caf::event_based_actor *self,
   });
   self->send(self, MonitorAtom::value);
 }
-
+/**
+ * Notify all slaves that subscribe the theme of "type".
+ */
 vector<pair<int, RetCode>> MasterNode::Notify(int type) {
   /*
   auto target = subscr_list[type];
@@ -143,6 +166,9 @@ vector<pair<int, RetCode>> MasterNode::Notify(int type) {
   */
   auto slave_list = subscr_list[type];
   string data = notify_handle[type]();
+  /*
+   * Create a blocking actor self to connect to actor system.
+   */
   caf::scoped_actor self;
   vector<pair<int, RetCode>> ret_list;
   for (auto id = 0; id < slave_list.size(); id++){
@@ -152,6 +178,9 @@ vector<pair<int, RetCode>> MasterNode::Notify(int type) {
     try {
       auto slave = caf::io::remote_actor(ip, port);
       cout << "notify <" << ip << "," << port << ">"<< endl;
+      /*
+       * Send update message to each slave subscribed theme of "type".
+       */
       self->sync_send(slave, UpdateAtom::value, type, data)
         .await(
             [&](OkAtom) {
@@ -175,7 +204,109 @@ vector<pair<int, RetCode>> MasterNode::Notify(int type) {
   }
   return ret_list;
 }
+/**
+ *  Dispatch a job with string format to a single slave
+ *  And return 0 if success, or negative value.
+ */
+RetCode MasterNode::Dispatch(Addr addr, string job) {
+  /*
+  Prop<string> prop;
+  caf::spawn(DispatchBehav, addr, job, &prop);
+  return prop.Join().flag;
+  */
+  caf::scoped_actor self;
+  RetCode ret = 0;
+  try {
+    auto slave = caf::io::remote_actor(addr.first, addr.second);
+    self->sync_send(slave, DispatchAtom::value, job)
+        .await(
+            [&](OkAtom) {
+              cout << "dispatch success" << endl;
+            },
+            [&](const caf::sync_exited_msg & msg){
+              ret = -1;
+              cout << "dispatch link fail" << endl;
+            },
+            caf::after(std::chrono::seconds(kTimeout)) >> [&]() {
+                  ret = -1;
+                  cout << "dispatch timeout" << endl;
+            }
+        );
+  } catch (caf::network_error &e) {
+     ret = -1;
+     cout << "dispatch network_error" << endl;
+  }
+  return ret;
+}
+/**
+ *  Dispatch a job with string format to a list of slaves
+ *  And return a vector of fail node index of given "slave_list"
+ *   and RetCode
+ */
+vector<pair<int, RetCode>> MasterNode::BroadDispatch(vector<Addr> slave_list, string job) {
+  /*
+  vector<Addr> ret;
+  MultiProp<string> prop(addr_list.size());
+  for (auto i = 0; i < addr_list.size(); i++)
+    caf::spawn(BDispatchBehav, addr_list, job, &prop, i);
+  auto join_ret = prop.Join();
+  for (auto i = 0; i < addr_list.size(); i++)
+    if (join_ret[i].flag != 0) ret.push_back(addr_list[i]);
+  return ret;
+  */
+  caf::scoped_actor self;
+  vector<pair<int, RetCode>> ret_list;
+  for (auto i = 0 ;i < slave_list.size(); i++) {
+    RetCode ret = 0;
+    auto ip = slave_list[i].first;
+    auto port = slave_list[i].second;
+    try {
+      auto slave = caf::io::remote_actor(ip, port);
+      self->sync_send(slave, DispatchAtom::value, job)
+          .await(
+            [&](OkAtom) {
+              cout << "run" << endl;
+            },
+            [&](const caf::sync_exited_msg & msg){
+              ret = -1;
+              cout << "dispatch link fail" << endl;
+            },
+            caf::after(std::chrono::seconds(kTimeout)) >> [&]() {
+              ret = -1;
+              cout << "dispatch timeout" << endl;
+             });
+    } catch (caf::network_error &e) {
+      ret = -1;
+    }
+    if (ret != 0)
+      ret_list.push_back(pair<int, RetCode>(i, ret));
+  }
+  return ret_list;
+}
 
+/**
+ * Get all live slave node
+ */
+vector<Addr> MasterNode::GetLive() {
+  vector<Addr> ret;
+  for (auto i = slave_list.begin(); i != slave_list.end(); i++)
+    if (i->second.is_live) ret.push_back(Addr(i->second.ip, i->second.port));
+  return ret;
+}
+
+/**
+ * get all dead slave node
+ */
+vector<Addr> MasterNode::GetDead() {
+  vector<Addr> ret;
+  for (auto i = slave_list.begin(); i != slave_list.end(); i++)
+    if (!i->second.is_live) ret.push_back(Addr(i->second.ip, i->second.port));
+  return ret;
+}
+
+/*
+ * The following function may not be used
+ */
 void MasterNode::NotifyBehav(caf::event_based_actor *self, MasterNode *master,
                              int type, string data, MultiProp<string> *prop,
                              int id) {
@@ -218,36 +349,7 @@ void MasterNode::NotifyBehav(caf::event_based_actor *self, MasterNode *master,
   }
 }
 
-RetCode MasterNode::Dispatch(Addr addr, string job) {
-  /*
-  Prop<string> prop;
-  caf::spawn(DispatchBehav, addr, job, &prop);
-  return prop.Join().flag;
-  */
-  caf::scoped_actor self;
-  RetCode ret = 0;
-  try {
-    auto slave = caf::io::remote_actor(addr.first, addr.second);
-    self->sync_send(slave, DispatchAtom::value, job)
-        .await(
-            [&](OkAtom) {
-              cout << "dispatch success" << endl;
-            },
-            [&](const caf::sync_exited_msg & msg){
-              ret = -1;
-              cout << "dispatch link fail" << endl;
-            },
-            caf::after(std::chrono::seconds(kTimeout)) >> [&]() {
-                  ret = -1;
-                  cout << "dispatch timeout" << endl;
-            }
-        );
-  } catch (caf::network_error &e) {
-     ret = -1;
-     cout << "dispatch network_error" << endl;
-  }
-  return ret;
-}
+
 
 void MasterNode::DispatchBehav(caf::event_based_actor *self, Addr addr,
                                string job, Prop<string> *prop) {
@@ -265,46 +367,7 @@ void MasterNode::DispatchBehav(caf::event_based_actor *self, Addr addr,
   }
 }
 
-vector<pair<int, RetCode>> MasterNode::BroadDispatch(vector<Addr> slave_list, string job) {
-  /*
-  vector<Addr> ret;
-  MultiProp<string> prop(addr_list.size());
-  for (auto i = 0; i < addr_list.size(); i++)
-    caf::spawn(BDispatchBehav, addr_list, job, &prop, i);
-  auto join_ret = prop.Join();
-  for (auto i = 0; i < addr_list.size(); i++)
-    if (join_ret[i].flag != 0) ret.push_back(addr_list[i]);
-  return ret;
-  */
-  caf::scoped_actor self;
-  vector<pair<int, RetCode>> ret_list;
-  for (auto i = 0 ;i < slave_list.size(); i++) {
-    RetCode ret = 0;
-    auto ip = slave_list[i].first;
-    auto port = slave_list[i].second;
-    try {
-      auto slave = caf::io::remote_actor(ip, port);
-      self->sync_send(slave, DispatchAtom::value, job)
-          .await(
-            [&](OkAtom) {
-              cout << "run" << endl;
-            },
-            [&](const caf::sync_exited_msg & msg){
-              ret = -1;
-              cout << "dispatch link fail" << endl;
-            },
-            caf::after(std::chrono::seconds(kTimeout)) >> [&]() {
-              ret = -1;
-              cout << "dispatch timeout" << endl;
-             });
-    } catch (caf::network_error &e) {
-      ret = -1;
-    }
-    if (ret != 0)
-      ret_list.push_back(pair<int, RetCode>(i, ret));
-  }
-  return ret_list;
-}
+
 
 void MasterNode::BDispatchBehav(caf::event_based_actor *self,
                                 vector<Addr> addr_list, string job,
@@ -327,16 +390,3 @@ void MasterNode::BDispatchBehav(caf::event_based_actor *self,
   }
 }
 
-vector<Addr> MasterNode::GetLive() {
-  vector<Addr> ret;
-  for (auto i = slave_list.begin(); i != slave_list.end(); i++)
-    if (i->second.is_live) ret.push_back(Addr(i->second.ip, i->second.port));
-  return ret;
-}
-
-vector<Addr> MasterNode::GetDead() {
-  vector<Addr> ret;
-  for (auto i = slave_list.begin(); i != slave_list.end(); i++)
-    if (!i->second.is_live) ret.push_back(Addr(i->second.ip, i->second.port));
-  return ret;
-}

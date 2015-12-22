@@ -74,8 +74,11 @@ const auto kMaxTryTimes = 10;
  * This is a block API, for all node to terminate;
  */
 
-
-
+/**
+ * This is node information.
+ * "is_live" show the status of a node (live/dead)
+ * "count" is timer for heart beat implement
+ */
 class NodeInfo {
  public:
   string ip;
@@ -92,6 +95,10 @@ class NodeInfo {
   }
 };
 
+
+/**
+ * The based type for master node and slave node
+ */
 class BasedNode {
  public:
   BasedNode() {}
@@ -101,6 +108,33 @@ class BasedNode {
   UInt16 port;
 };
 
+/**
+ *  Transform T type c++ object to string
+ */
+template<typename T>
+string Serialize(T obj) {
+  stringstream ss;
+  boost::archive::text_oarchive oa(ss);
+  oa << obj;
+  return ss.str();
+}
+
+/**
+ * Transform string to T type c++ object
+ */
+template<typename T>
+T Derialize(string obj) {
+  T ret;
+  stringstream ss(obj);
+  boost::archive::text_iarchive ia(ss);
+  ia >> ret;
+  return ret;
+}
+
+/*******************************************
+ * The following class may not be used yet!*
+ *******************************************/
+
 template<typename T>
 class CallRet{
  public:
@@ -109,6 +143,7 @@ class CallRet{
   T value;
   RetCode flag = 0;
 };
+
 
 template<typename T>
 class Prop{
@@ -194,22 +229,6 @@ class SerTest{
 
 };
 
-template<typename T>
-string Serialize(T obj) {
-  stringstream ss;
-  boost::archive::text_oarchive oa(ss);
-  oa << obj;
-  return ss.str();
-}
-
-template<typename T>
-T Derialize(string obj) {
-  T ret;
-  stringstream ss(obj);
-  boost::archive::text_iarchive ia(ss);
-  ia >> ret;
-  return ret;
-}
 
 
 

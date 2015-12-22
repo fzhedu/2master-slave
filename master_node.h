@@ -51,22 +51,57 @@ using std::unordered_map;
 class MasterNode: public BasedNode {
  public:
   MasterNode() {}
+  /**
+   * @param master's ip
+   * @param master's port
+   */
   MasterNode(string ip, UInt16 port):BasedNode(ip, port){ }
   ~MasterNode() {}
+  /**
+   * Launch master main thread，and publish it to Internet at given <ip,port>
+   */
   RetCode Start();
+  /**
+   * Launch monitor thread, and it will check register node at a frequency.
+   */
   RetCode Monitor();
+  /**
+   * Set a callback function handle by lambda expression.
+   * It will be call when "notify" is called.
+   * The lambda expression return a string, which is the
+   * new value to notify subscribers.
+   */
   void SetNotifyHandle(int type, function<string()> fun) {
     notify_handle[type]=fun;
   }
+  /**
+   * Notify all subscribers to update data.
+   * Multiple theme subscribe is implemented.
+   * "type" is the theme of subscribe, to be defined in a header file by user.
+   * Return value is vector of error notify, so if notify success, the
+   * return vector will be empty.
+   * elements of vector is a pair<index of master.subscr_list[type], RetCode of error>.
+   */
   vector<pair<int, RetCode>> Notify(int type);
+  /**
+   * Dispatch a string value job to a slave at address "addr".
+   * Execute is right when RetCode is 0
+   */
   RetCode Dispatch(Addr slave, string job);
+  /**
+   * Dispatch a string value job to a "slave_list" at address list
+   * The return vector is same as the notify
+   */
   vector<pair<int, RetCode>> BroadDispatch(vector<Addr> slave_list, string job);
+  /**
+   * Get all live node
+   */
   vector<Addr> GetLive();
+  /**
+   * Get all dead node
+   */
   vector<Addr> GetDead();
-  void Exit() {
-    auto master = caf::io::remote_actor("127.0.0.1", port);
-    caf::anon_send(master, ExitAtom::value);
-  }
+
   map<Addr,NodeInfo> slave_list;
   map<int,vector<Addr>> subscr_list;
   map<int, function<string()>> notify_handle;

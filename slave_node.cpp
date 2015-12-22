@@ -75,11 +75,18 @@ void * SlaveNode::MainThread(void * arg){
 
 void SlaveNode::MainBehav(caf::event_based_actor * self, SlaveNode * slave){
   self->become(
+      /**
+       * Apply master's dispatched "job" and create a job thread
+       */
       [=](DispatchAtom, string job)->caf::message {
         auto jobact = caf::spawn(JobBehav,slave, job);
         //slave->job_handle(job);
         return caf::make_message(OkAtom::value);
       },
+      /**
+       * Apply master update request,
+       * and call "update_handle" to update slave
+       */
       [=](UpdateAtom, int type, string data)->caf::message  {
         cout << "update  success" << endl;
         slave->update_handle[type]( data);
@@ -166,7 +173,10 @@ void SlaveNode::HeartbeatBehav(caf::event_based_actor * self,SlaveNode * slave) 
   );
   self->send(self, HeartbeatAtom::value);
 }
-
+/**
+ *  Slave subscribe theme of "type".
+ *  Slave must set update handle for theme of "type" previously.
+ */
 RetCode SlaveNode::Subscribe(int type) {
   /*
   Prop<string> prop;

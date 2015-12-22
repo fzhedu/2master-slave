@@ -48,29 +48,57 @@ using std::map;
 class SlaveNode:public BasedNode {
  public:
   SlaveNode() {}
+  /**
+   * @param slave self's ip
+   * @param slave self's port
+   * @param slave self's ip_master
+   * @param slave self's port_master
+   */
   SlaveNode(string _ip, UInt16 _port, string _ip_master, UInt16 _port_master):
     ip(_ip),port(_port),ip_master(_ip_master),port_master(_port_master) {
   }
   ~SlaveNode() {}
+  /**
+   *  Launch slave main thread，and publish it to Internet at given <ip,port>
+   */
   RetCode Start();
+  /**
+   *  Slave register to master(at given <ip, port>).
+   *  The return will be 0 if success register, or negative.
+   */
   RetCode Register();
+  /**
+   *  Launch a thread to send heart beat message to master at proper time
+   */
   RetCode Heartbeat();
+
+  /**
+   * Add the Slave to master subscribe list at "type" theme
+   */
   RetCode Subscribe(int type);
+  /**
+   * Set slave's update callback function handle "fun".
+   * If slave receive master's update message, it will be called.
+   * The "fun" has a string param provide by system, it can used to
+   * update local data.
+   */
   void SetUpdateHandle(int type, function<void(string)> fun) {
     update_handle[type] = fun;
   }
+  /**
+   * Set slave's job callback function  handle "fun".
+   * When slave receive master's job request,
+   * Slave call "fun" to do the job.
+   * Job string can be transformed to object by "Derialize"
+   */
   void SetJobHandle(function<void(string)> fun) {
     job_handle = fun;
   }
-  void Exit(){
-    auto slave = caf::io::remote_actor("127.0.0.1", port);
-    caf::anon_send(slave, ExitAtom::value);
-  }
+
   string ip;
   UInt16 port;
   string ip_master;
   UInt16 port_master;
-  bool isPub = false;
   map<int, function<void(string)>> update_handle;
   function<void(string)> job_handle;
 
